@@ -1,0 +1,14 @@
+interface swd
+device nrf51822
+speed 50000
+w4 4001e504 2
+w4 4001e50c 1
+sleep 200
+w4 4001e514 1
+sleep 200
+r
+w4 4001e504 1
+loadbin "_build/nrf51822_xxac.bin"                        0
+r
+g
+q
