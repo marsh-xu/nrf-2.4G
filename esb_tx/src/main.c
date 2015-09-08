@@ -52,8 +52,8 @@
 // Define payload length
 #define TX_PAYLOAD_LENGTH NRF_ESB_CONST_MAX_PAYLOAD_LENGTH ///< We use 1 byte payload length when transmitting
 
-#define MAX_RTC_TASKS_DELAY     47 
-#define RTC1_IRQ_PRI            APP_IRQ_PRIORITY_LOW 
+#define MAX_RTC_TASKS_DELAY     47
+#define RTC1_IRQ_PRI            APP_IRQ_PRIORITY_LOW
 
 // Data and acknowledgement payloads
 static uint8_t my_tx_payload[NRF_ESB_CONST_MAX_PAYLOAD_LENGTH]; ///< Payload to send to PRX.
@@ -70,6 +70,21 @@ static void radio_condig(void)
     nrf_esb_set_datarate(NRF_ESB_DATARATE_2_MBPS);
 }
 
+static void start_rtc(void)
+{
+    NRF_CLOCK->TASKS_LFCLKSTART = 1;
+    while((NRF_CLOCK->EVENTS_LFCLKSTARTED) == 0);
+
+
+    NRF_RTC1->PRESCALER = 0;
+
+    NRF_RTC1->TASKS_STOP = 1;
+    nrf_delay_us(MAX_RTC_TASKS_DELAY);
+    NRF_RTC1->TASKS_CLEAR = 1;
+    nrf_delay_us(MAX_RTC_TASKS_DELAY);
+    NRF_RTC1->TASKS_START = 1;
+    nrf_delay_us(MAX_RTC_TASKS_DELAY);
+}
 
 /*****************************************************************************/
 /**
@@ -90,26 +105,7 @@ int main()
         my_tx_payload[i] = i;
     }
 
-    NRF_CLOCK->TASKS_LFCLKSTART = 1;
-    while((NRF_CLOCK->EVENTS_LFCLKSTARTED) == 0);
-
-
-    NRF_RTC1->PRESCALER = 0;
-    //NVIC_SetPriority(RTC1_IRQn, RTC1_IRQ_PRI);
-
-
-    //NRF_RTC1->EVTENSET = RTC_EVTEN_COMPARE0_Msk;
-    //NRF_RTC1->INTENSET = RTC_INTENSET_COMPARE0_Msk;
-
-    //NVIC_ClearPendingIRQ(RTC1_IRQn);
-    //NVIC_EnableIRQ(RTC1_IRQn);
-
-    NRF_RTC1->TASKS_STOP = 1;
-    nrf_delay_us(MAX_RTC_TASKS_DELAY);
-    NRF_RTC1->TASKS_CLEAR = 1;
-    nrf_delay_us(MAX_RTC_TASKS_DELAY);
-    NRF_RTC1->TASKS_START = 1;
-    nrf_delay_us(MAX_RTC_TASKS_DELAY);
+    start_rtc();
 
     radio_condig();
     nrf_esb_datarate_t datarate = nrf_esb_get_datarate();

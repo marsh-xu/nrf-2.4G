@@ -32,6 +32,7 @@
 
 #include "nrf_esb.h"
 #include "nrf_gpio.h"
+#include "nrf_delay.h"
 
 #include "nrf51.h"
 #include "nrf51_bitfields.h"
@@ -45,16 +46,36 @@
 // Define pipe
 #define PIPE_NUMBER 0 ///< We use pipe 0 in this example
 
+#define MAX_RTC_TASKS_DELAY     47
 // Define payload length
 #define TX_PAYLOAD_LENGTH 1 ///< We use 1 byte payload length when transmitting
 
 // Data and acknowledgement payloads
-//static uint8_t my_tx_payload[NRF_ESB_CONST_MAX_PAYLOAD_LENGTH]; ///< Payload to send to PRX.
+static uint8_t my_tx_payload[NRF_ESB_CONST_MAX_PAYLOAD_LENGTH]; ///< Payload to send to PRX.
 static uint8_t my_rx_payload[NRF_ESB_CONST_MAX_PAYLOAD_LENGTH]; ///< Placeholder for received ACK payloads from PRX.
+
+static uint8_t index = 0;
+static uint32_t time_tick = 0;
 
 static void radio_config(void)
 {
     nrf_esb_set_datarate(NRF_ESB_DATARATE_2_MBPS);
+}
+
+static void start_rtc(void)
+{
+    NRF_CLOCK->TASKS_LFCLKSTART = 1;
+    while((NRF_CLOCK->EVENTS_LFCLKSTARTED) == 0);
+
+
+    NRF_RTC1->PRESCALER = 0;
+
+    NRF_RTC1->TASKS_STOP = 1;
+    nrf_delay_us(MAX_RTC_TASKS_DELAY);
+    NRF_RTC1->TASKS_CLEAR = 1;
+    nrf_delay_us(MAX_RTC_TASKS_DELAY);
+    NRF_RTC1->TASKS_START = 1;
+    nrf_delay_us(MAX_RTC_TASKS_DELAY);
 }
 
 
@@ -72,9 +93,9 @@ int main()
 
     (void)nrf_esb_enable();
 
-    //// Add packet into TX queue
-    //my_tx_payload[0] = 0x55;
-    //(void)nrf_esb_add_packet_to_tx_fifo(PIPE_NUMBER, my_tx_payload, 1, NRF_ESB_PACKET_USE_ACK);
+    SEGGER_RTT_printf(0, "RX started!\r\n");
+
+    start_rtc();
 
     radio_config();
     while(1)
@@ -105,13 +126,33 @@ void nrf_esb_rx_data_ready(uint32_t rx_pipe, int32_t rssi){
     uint32_t my_rx_payload_length;
     // Pop packet and write first byte of the payload to the GPIO port.
     (void)nrf_esb_fetch_packet_from_rx_fifo(PIPE_NUMBER, my_rx_payload, &my_rx_payload_length);
+    time_tick = NRF_RTC1->COUNTER;
+    SEGGER_RTT_printf(0, "%p :: RX received data: %p  -  index : %p \r\n", time_tick, *(uint32_t*)&my_rx_payload[0], index);
     if (my_rx_payload_length > 0)
     {
         //memcpy((uint8_t*)my_tx_payload, (uint8_t*)my_rx_payload, my_rx_payload_length);
         if (my_rx_payload[0] == 0x55)
         {
-            my_rx_payload[0] = 0x44;
-            (void)nrf_esb_add_packet_to_tx_fifo(PIPE_NUMBER, my_rx_payload, my_rx_payload_length, NRF_ESB_PACKET_USE_ACK);
+            my_tx_payload[0] = 0x44;
+            if (index == my_rx_payload[1])
+            {
+                index ++;
+                if (index >= 0x64)
+                {
+                    index = 0;
+                    my_tx_payload[1] = 0xFF;
+                }
+                else
+                {
+                    return;
+                }
+            }
+            else
+            {
+                my_tx_payload[1] = index;
+            }
+
+            (void)nrf_esb_add_packet_to_tx_fifo(PIPE_NUMBER, my_tx_payload, 2, NRF_ESB_PACKET_USE_ACK);
         }
         else
         {
