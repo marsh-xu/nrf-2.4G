@@ -63,6 +63,8 @@ static uint8_t index = 0;
 
 static uint32_t time_tick = 0;
 
+static bool  tx_complete = false;
+
 static void radio_condig(void)
 {
     nrf_esb_set_datarate(NRF_ESB_DATARATE_2_MBPS);
@@ -117,10 +119,24 @@ int main()
 
 
     // Add packet into TX queue
-    my_tx_payload[0] = 0x55;
-    my_tx_payload[1] = index;
-    (void)nrf_esb_add_packet_to_tx_fifo(PIPE_NUMBER, my_tx_payload, NRF_ESB_CONST_MAX_PAYLOAD_LENGTH, NRF_ESB_PACKET_USE_ACK);
-    index ++;
+    while(tx_complete == false)
+    {
+        my_tx_payload[0] = 0x55;
+        my_tx_payload[1] = index;
+        (void)nrf_esb_add_packet_to_tx_fifo(PIPE_NUMBER, my_tx_payload, NRF_ESB_CONST_MAX_PAYLOAD_LENGTH, NRF_ESB_PACKET_USE_ACK);
+        time_tick = NRF_RTC1->COUNTER;
+        SEGGER_RTT_printf(0, "%p :: Send data:%p\r\n",time_tick, *(uint32_t*)&my_tx_payload[0]);
+        index ++;
+        if (index >= 0x64)
+        {
+            //nrf_delay_us(3000000);
+            index = 0;
+        }
+        else
+        {
+            nrf_delay_us(1000);
+        }
+    }
 
     while(1)
     {
@@ -138,20 +154,21 @@ int main()
 // If an ACK was received, we send another packet.
 void nrf_esb_tx_success(uint32_t tx_pipe, int32_t rssi){
     // Read buttons and load data payload into TX queue
-    my_tx_payload[0] = 0x55;
-    my_tx_payload[1] = index;
-    (void)nrf_esb_add_packet_to_tx_fifo(PIPE_NUMBER, my_tx_payload, TX_PAYLOAD_LENGTH, NRF_ESB_PACKET_USE_ACK);
-    time_tick = NRF_RTC1->COUNTER;
-    SEGGER_RTT_printf(0, "%p :: Send success!  data:%p\r\n",time_tick, *(uint32_t*)&my_tx_payload[0]);
-    index ++;
+    //my_tx_payload[0] = 0x55;
+    //my_tx_payload[1] = index;
+    //(void)nrf_esb_add_packet_to_tx_fifo(PIPE_NUMBER, my_tx_payload, TX_PAYLOAD_LENGTH, NRF_ESB_PACKET_USE_ACK);
+    //time_tick = NRF_RTC1->COUNTER;
+    //SEGGER_RTT_printf(0, "%p :: Send success!  data:%p\r\n",time_tick, *(uint32_t*)&my_tx_payload[0]);
+    //index ++;
 }
 
 
 // If the transmission failed, send a new packet.
 void nrf_esb_tx_failed(uint32_t tx_pipe){
-    SEGGER_RTT_printf(0, "Send failed!\r\n");
-    my_tx_payload[0] = 0x55;
-    (void)nrf_esb_add_packet_to_tx_fifo(PIPE_NUMBER, my_tx_payload, TX_PAYLOAD_LENGTH, NRF_ESB_PACKET_USE_ACK);}
+    //SEGGER_RTT_printf(0, "Send failed!\r\n");
+    //my_tx_payload[0] = 0x55;
+    //(void)nrf_esb_add_packet_to_tx_fifo(PIPE_NUMBER, my_tx_payload, TX_PAYLOAD_LENGTH, NRF_ESB_PACKET_USE_ACK);
+}
 
 
 void nrf_esb_rx_data_ready(uint32_t rx_pipe, int32_t rssi){
@@ -159,7 +176,21 @@ void nrf_esb_rx_data_ready(uint32_t rx_pipe, int32_t rssi){
     time_tick = NRF_RTC1->COUNTER;
     // Pop packet and write first byte of the payload to the GPIO port.
     (void)nrf_esb_fetch_packet_from_rx_fifo(PIPE_NUMBER, my_rx_payload, &my_rx_payload_length);
-    SEGGER_RTT_printf(0, "%p :: received success!  data:%p %p %p %p %p %p %p %p\r\n",time_tick, *(uint32_t*)&my_rx_payload[0], *(uint32_t*)&my_rx_payload[4], *(uint32_t*)&my_rx_payload[8], *(uint32_t*)&my_rx_payload[12], *(uint32_t*)&my_rx_payload[16], *(uint32_t*)&my_rx_payload[20], *(uint32_t*)&my_rx_payload[24], *(uint32_t*)&my_rx_payload[28]);
+    //SEGGER_RTT_printf(0, "%p :: received success!  data:%p %p %p %p %p %p %p %p\r\n",time_tick, *(uint32_t*)&my_rx_payload[0], *(uint32_t*)&my_rx_payload[4], *(uint32_t*)&my_rx_payload[8], *(uint32_t*)&my_rx_payload[12], *(uint32_t*)&my_rx_payload[16], *(uint32_t*)&my_rx_payload[20], *(uint32_t*)&my_rx_payload[24], *(uint32_t*)&my_rx_payload[28]);
+    SEGGER_RTT_printf(0, "%p :: received success! len:%p  data:%p\r\n", time_tick, my_rx_payload_length, *(uint32_t*)&my_rx_payload[0]);
+    if ((my_rx_payload[0]==0x44)&&(my_rx_payload[1]==0xFF))
+    {
+        tx_complete = true;
+        SEGGER_RTT_printf(0, "%p :: received success!\r\n", time_tick);
+    }
+    else if ((my_rx_payload[0]==0x44)&&(my_rx_payload[1] < 0x64))
+    {
+        index = my_rx_payload[1];
+        my_tx_payload[0] = 0x55;
+        my_tx_payload[1] = index;
+        (void)nrf_esb_add_packet_to_tx_fifo(PIPE_NUMBER, my_tx_payload, NRF_ESB_CONST_MAX_PAYLOAD_LENGTH, NRF_ESB_PACKET_USE_ACK);
+        SEGGER_RTT_printf(0, "%p :: received data request! index = %p\r\n", time_tick, index);
+    }
 }
 
 // Callbacks not needed in this example.
