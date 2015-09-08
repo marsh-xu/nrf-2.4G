@@ -34,7 +34,13 @@
 #include "nrf_esb.h"
 #include "nrf_gpio.h"
 
+#include "nrf51.h"
+#include "nrf51_bitfields.h"
+
+#include "nrf_delay.h"
+
 #include "SEGGER_RTT.h"
+#include "app_util_platform.h"
 
 /*****************************************************************************/
 /** @name Configuration */
@@ -44,11 +50,23 @@
 #define PIPE_NUMBER 0 ///< We use pipe 0 in this example
 
 // Define payload length
-#define TX_PAYLOAD_LENGTH 1 ///< We use 1 byte payload length when transmitting
+#define TX_PAYLOAD_LENGTH NRF_ESB_CONST_MAX_PAYLOAD_LENGTH ///< We use 1 byte payload length when transmitting
+
+#define MAX_RTC_TASKS_DELAY     47 
+#define RTC1_IRQ_PRI            APP_IRQ_PRIORITY_LOW 
 
 // Data and acknowledgement payloads
 static uint8_t my_tx_payload[NRF_ESB_CONST_MAX_PAYLOAD_LENGTH]; ///< Payload to send to PRX.
 static uint8_t my_rx_payload[NRF_ESB_CONST_MAX_PAYLOAD_LENGTH]; ///< Placeholder for received ACK payloads from PRX.
+
+static uint8_t index = 0;
+
+static uint32_t time_tick = 0;
+
+static void radio_condig(void)
+{
+    nrf_esb_set_datarate(NRF_ESB_DATARATE_2_MBPS);
+}
 
 
 /*****************************************************************************/
@@ -65,9 +83,44 @@ int main()
 
     (void)nrf_esb_enable();
 
+    for (uint8_t i = 0; i < 32; i++)
+    {
+        my_tx_payload[i] = i;
+    }
+
+    NRF_CLOCK->TASKS_LFCLKSTART = 1;
+    while((NRF_CLOCK->EVENTS_LFCLKSTARTED) == 0);
+
+
+    NRF_RTC1->PRESCALER = 0;
+    //NVIC_SetPriority(RTC1_IRQn, RTC1_IRQ_PRI);
+
+
+    //NRF_RTC1->EVTENSET = RTC_EVTEN_COMPARE0_Msk;
+    //NRF_RTC1->INTENSET = RTC_INTENSET_COMPARE0_Msk;
+
+    //NVIC_ClearPendingIRQ(RTC1_IRQn);
+    //NVIC_EnableIRQ(RTC1_IRQn);
+
+    NRF_RTC1->TASKS_STOP = 1;
+    nrf_delay_us(MAX_RTC_TASKS_DELAY);
+    NRF_RTC1->TASKS_CLEAR = 1;
+    nrf_delay_us(MAX_RTC_TASKS_DELAY);
+    NRF_RTC1->TASKS_START = 1;
+    nrf_delay_us(MAX_RTC_TASKS_DELAY);
+
+    radio_condig();
+    nrf_esb_datarate_t datarate = nrf_esb_get_datarate();
+    nrf_esb_crc_length_t crc_len = nrf_esb_get_crc_length();
+    SEGGER_RTT_printf(0, "datarate = %p\r\n",datarate);
+    SEGGER_RTT_printf(0, "crc_len = %p\r\n",crc_len);
+
+
     // Add packet into TX queue
     my_tx_payload[0] = 0x55;
-    (void)nrf_esb_add_packet_to_tx_fifo(PIPE_NUMBER, my_tx_payload, 1, NRF_ESB_PACKET_USE_ACK);
+    my_tx_payload[1] = index;
+    (void)nrf_esb_add_packet_to_tx_fifo(PIPE_NUMBER, my_tx_payload, NRF_ESB_CONST_MAX_PAYLOAD_LENGTH, NRF_ESB_PACKET_USE_ACK);
+    index ++;
 
     while(1)
     {
@@ -86,8 +139,11 @@ int main()
 void nrf_esb_tx_success(uint32_t tx_pipe, int32_t rssi){
     // Read buttons and load data payload into TX queue
     my_tx_payload[0] = 0x55;
+    my_tx_payload[1] = index;
     (void)nrf_esb_add_packet_to_tx_fifo(PIPE_NUMBER, my_tx_payload, TX_PAYLOAD_LENGTH, NRF_ESB_PACKET_USE_ACK);
-    SEGGER_RTT_printf(0, "Send success!  data:%p\r\n", my_tx_payload[0]);
+    time_tick = NRF_RTC1->COUNTER;
+    SEGGER_RTT_printf(0, "%p :: Send success!  data:%p\r\n",time_tick, *(uint32_t*)&my_tx_payload[0]);
+    index ++;
 }
 
 
@@ -100,9 +156,10 @@ void nrf_esb_tx_failed(uint32_t tx_pipe){
 
 void nrf_esb_rx_data_ready(uint32_t rx_pipe, int32_t rssi){
     uint32_t my_rx_payload_length;
+    time_tick = NRF_RTC1->COUNTER;
     // Pop packet and write first byte of the payload to the GPIO port.
     (void)nrf_esb_fetch_packet_from_rx_fifo(PIPE_NUMBER, my_rx_payload, &my_rx_payload_length);
-    SEGGER_RTT_printf(0, "received success!  data:%p\r\n", my_rx_payload[0]);
+    SEGGER_RTT_printf(0, "%p :: received success!  data:%p %p %p %p %p %p %p %p\r\n",time_tick, *(uint32_t*)&my_rx_payload[0], *(uint32_t*)&my_rx_payload[4], *(uint32_t*)&my_rx_payload[8], *(uint32_t*)&my_rx_payload[12], *(uint32_t*)&my_rx_payload[16], *(uint32_t*)&my_rx_payload[20], *(uint32_t*)&my_rx_payload[24], *(uint32_t*)&my_rx_payload[28]);
 }
 
 // Callbacks not needed in this example.

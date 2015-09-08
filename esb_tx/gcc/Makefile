@@ -54,6 +54,7 @@ INC_PATHS += -I../components/drivers_nrf/hal
 INC_PATHS += -I../components/properitary_rf/esb
 INC_PATHS += -I../components/toolchain/gcc
 INC_PATHS += -I../components/toolchain
+INC_PATHS += -I../components/libraries/util
 INC_PATHS += -I../src/rtt/RTT
 
 OBJECT_DIRECTORY = _build
